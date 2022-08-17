@@ -1,34 +1,31 @@
 #include <AccelStepper.h>
 #include <LiquidCrystal_I2C.h>
+#include <Wire.h>
 #include <LiquidCrystal.h>
 #include<MultiStepper.h>
+
 
 //constants
 const int IR_PIN = 2;
 
-const int STEPPER_X_STEP = 3;
-const int STEPPER_X_DIR = 4;
-const int STEPPER_Z_STEP = 5;
-const int STEPPER_Z_DIR = 6;
+const int STEPPER_X_STEP = 3, STEPPER_X_DIR = 4;
+const int STEPPER_Z_STEP = 5, STEPPER_Z_DIR = 6;
 
 const int LIMIT_SWITCH_X = 7;
 const int LIMIT_SWITCH_Z = 8;
 
-const int RS_PIN = 9;
-const int EN_PIN = 10;
-const int RD4_PIN = 11;
-const int RD5_PIN = 12;
-const int RD6_PIN = 13;
-const int RD7_PIN = 14;
+// Define LCD pinout
+const int  en = 2, rw = 1, rs = 0, d4 = 4, d5 = 5, d6 = 6, d7 = 7, bl = 3;
 
-const int GAME_OVER_STATE = 6;
-const int LEVEL_1_MAX_TIME = 60000;  
-const int LEVEL_1_STATE = 1, LEVEL_2_STATE = 2;
+const int I2C_ADDRESS = 0x27;
+
+const int LEVEL_1_MAX_TIME = 30000, LEVEL_2_MAX_TIME = 30000, LEVEL_3_MAX_TIME = 30000, LEVEL_4_MAX_TIME = 30000, LEVEL_5_MAX_TIME = 30000;  
+const int LEVEL_1_STATE = 1, LEVEL_2_STATE = 2,LEVEL_3_STATE = 3, LEVEL_4_STATE = 4, LEVEL_5_STATE = 5, GAME_OVER_STATE = 6;;
 
 //objects
 AccelStepper stepperX(1, STEPPER_X_STEP, STEPPER_X_DIR);
 AccelStepper stepperZ(1, STEPPER_Z_STEP, STEPPER_Z_DIR);
-LiquidCrystal lcd(RS_PIN, EN_PIN, RD4_PIN, RD5_PIN, RD6_PIN, RD7_PIN); // need to change to I2C later
+LiquidCrystal_I2C lcd(0x27, 20,4); // need to change to I2C later
 
 //global variables
 int currentLevel = 0;
@@ -47,8 +44,13 @@ void setup() {
   pinMode(IR_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(IR_PIN), ISR_makes, FALLING);
   
-  lcd.begin(16,2); // to be changed to (20,4)
-
+  lcd.init();
+  lcd.backlight();
+  lcd.print("Current Level: ");
+  lcd.setCursor(0,1);
+  lcd.print("Makes: /5");
+  lcd.setCursor(0,2);
+  lcd.print("Time Remaining: ");
 }
 
 
@@ -65,7 +67,7 @@ void loop() {
       break;
 
     case 2:
-    //  level_2();
+    currentLevel = level_2();
       break;
     
   }
@@ -76,17 +78,22 @@ void loop() {
 void ISR_makes()
 {
   makes++;
+  //Serial.println(makes);
+  
 }
 
 int homingRoutine()
 {
   //moving to switch
+  lcd.setCursor(0,3);
+  lcd.print("homing...");
+  
   while (digitalRead(LIMIT_SWITCH_X) == LOW)
   {
     stepperX.setSpeed(-400);
     stepperX.runSpeed();
   }
-  delay(1000);
+  delay(2000);
 
   //moving till switch is not triggered
   while (digitalRead(LIMIT_SWITCH_X) == HIGH)
@@ -96,6 +103,7 @@ int homingRoutine()
   }
 
   stepperX.setCurrentPosition(0);
+  delay(1000);
 
   while (digitalRead(LIMIT_SWITCH_Z) == LOW)
   {
@@ -106,13 +114,14 @@ int homingRoutine()
 
   while (digitalRead(LIMIT_SWITCH_Z) == HIGH)
   {
-    stepperZ.setSpeed(200);
+    stepperZ.setSpeed(-200);
     stepperZ.runSpeed();
   }
-
+  delay(1000);
   stepperZ.setCurrentPosition(0);
 
-  
+  lcd.setCursor(0,3);
+  lcd.print("               ");
   return LEVEL_1_STATE;
 }
 
@@ -121,19 +130,28 @@ int level_1()
   unsigned long levelStartTime = millis();
   unsigned long currentLevelTime = levelStartTime;
 
-  lcd.setCursor(12,0); //need to update
+  lcd.setCursor(15,0); //need to update
   lcd.print(currentLevel);
   
   stepperX.setSpeed(500);
   stepperX.setAcceleration(1000);
   stepperX.moveTo(500); // get constants 
   stepperX.runToPosition(); // whats the difference between this and .runToNewPosition?
+  stepperZ.setAcceleration(1000);
 
   //z-axis stays home for level 1
 
   //checking if 
   while (millis() <= (levelStartTime + LEVEL_1_MAX_TIME))
   {
+    stepperZ.moveTo(-100);
+    stepperZ.runToPosition();
+    delay(100);
+
+    stepperZ.moveTo(-900);
+    stepperZ.runToPosition();
+    delay(100);
+    
     if (makes >= 5) 
     {
        
@@ -148,19 +166,31 @@ int level_1()
       lcdUpdate(levelStartTime, currentLevelTime);
     }
   }
-
-  return GAME_OVER_STATE;
+  
+  makes = 0;
+  return 2;
 }
 
 void lcdUpdate(unsigned long levelStartTime, unsigned long currentLevelTime)
 {
-  lcd.setCursor(0,2);
+  lcd.setCursor(6,1);
   lcd.print(makes);
+ 
+  int displayTimeElapsed = 0;
+  displayTimeElapsed = (LEVEL_1_MAX_TIME - (currentLevelTime - levelStartTime)) / 1000;
 
-  int displayTime = 0;
-  displayTime = (currentLevelTime - levelStartTime) / 1000;
-
-  lcd.setCursor(10,0);
-  lcd.print(displayTime);
+  lcd.setCursor(16,2);
+  lcd.print(displayTimeElapsed);
   
+}
+int level_2()
+{
+ 
+  stepperZ.setAcceleration(1000);
+  stepperZ.moveTo(-700);
+  stepperZ.runToPosition();
+  delay(5000);
+
+   
+  return 0;
 }

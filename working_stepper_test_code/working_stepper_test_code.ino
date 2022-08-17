@@ -2,9 +2,9 @@
 
 #include <AccelStepper.h>
 
-const int STEPPER1_STEP = 2;
-const int STEPPER1_DIR = 3;
-const int LIMIT_SWITCH_1 = 4;
+const int STEPPER1_STEP = 3;
+const int STEPPER1_DIR = 4;
+const int LIMIT_SWITCH_1 = 8;
 
 AccelStepper stepper1(1, STEPPER1_STEP, STEPPER1_DIR);
 
@@ -14,7 +14,7 @@ void setup() {
   Serial.begin(9600);
 
   stepper1.setMaxSpeed(1000); //step/sec
-  stepper1.setAcceleration(6000);
+  stepper1.setAcceleration(4000);
  
 
   // Homing Sequence
@@ -27,7 +27,7 @@ void setup() {
   delay(2000);
 
   // Move to starting position
-  stepper1.moveTo(-500);
+  stepper1.moveTo(-600);
   stepper1.runToPosition();
 
   delay(2000);
@@ -41,11 +41,11 @@ void loop() {
 
 void stepperMove()
 {
-  stepper1.moveTo(-150);
+  stepper1.moveTo(-100);
   stepper1.runToPosition();
   delay(100);
 
-  stepper1.moveTo(-800);
+  stepper1.moveTo(-900);
   stepper1.runToPosition();
   delay(100);
 }
