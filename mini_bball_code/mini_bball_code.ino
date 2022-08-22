@@ -8,6 +8,8 @@
 //constants
 const int IR_PIN = 2;
 
+const unsigned long MAKE_INTERRUPT_DELAY = 1000000;
+
 const int STEPPER_X_STEP = 3, STEPPER_X_DIR = 4;
 const int STEPPER_Z_STEP = 5, STEPPER_Z_DIR = 6;
 
@@ -19,8 +21,9 @@ const int  en = 2, rw = 1, rs = 0, d4 = 4, d5 = 5, d6 = 6, d7 = 7, bl = 3;
 
 const int I2C_ADDRESS = 0x27;
 
-const int LEVEL_1_MAX_TIME = 30000, LEVEL_2_MAX_TIME = 30000, LEVEL_3_MAX_TIME = 30000, LEVEL_4_MAX_TIME = 30000, LEVEL_5_MAX_TIME = 30000;  
-const int LEVEL_1_STATE = 1, LEVEL_2_STATE = 2,LEVEL_3_STATE = 3, LEVEL_4_STATE = 4, LEVEL_5_STATE = 5, GAME_OVER_STATE = 6;;
+const int LEVEL_1_MAX_TIME = 20000, LEVEL_2_MAX_TIME = 30000, LEVEL_3_MAX_TIME = 30000, LEVEL_4_MAX_TIME = 30000, LEVEL_5_MAX_TIME = 30000;  
+const int HOMING_STATE = 0, LEVEL_1_STATE = 1, LEVEL_2_STATE = 2,LEVEL_3_STATE = 3, LEVEL_4_STATE = 4, LEVEL_5_STATE = 5, GAME_OVER_STATE = 6;
+
 
 //objects
 AccelStepper stepperX(1, STEPPER_X_STEP, STEPPER_X_DIR);
@@ -30,6 +33,9 @@ LiquidCrystal_I2C lcd(0x27, 20,4); // need to change to I2C later
 //global variables
 int currentLevel = 0;
 volatile int makes = 0;
+volatile int levelTime = 0;
+volatile bool canCount = true;
+unsigned long firstMakeInterruptTime = 0.0;
 
 void setup() {
  
@@ -43,7 +49,8 @@ void setup() {
   
   pinMode(IR_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(IR_PIN), ISR_makes, FALLING);
-  
+
+ 
   lcd.init();
   lcd.backlight();
   lcd.print("Current Level: ");
@@ -58,27 +65,46 @@ void loop() {
 
   switch(currentLevel)
   {
-    case 0:
+    case HOMING_STATE:
       currentLevel = homingRoutine();
       break;
 
-    case 1:
+    case LEVEL_1_STATE:
       currentLevel = level_1(); 
       break;
 
-    case 2:
-    currentLevel = level_2();
+    case LEVEL_2_STATE:
+      currentLevel = level_2();
+      break;
+
+    case GAME_OVER_STATE:
+      currentLevel = game_over();
       break;
     
   }
 
 }
-
-
+/*
+ISR(TIMER1_COMPA_vect) {
+  TCNT1 = t1_load; // reset timer 1 to 0
+  
+}
+*/
 void ISR_makes()
 {
-  makes++;
-  //Serial.println(makes);
+  if (micros() >= (firstMakeInterruptTime + MAKE_INTERRUPT_DELAY))
+  {
+    canCount = true;
+    firstMakeInterruptTime = micros();
+  }
+  if (canCount)
+  {
+    firstMakeInterruptTime = micros();
+    makes++;
+    canCount = false;
+  }
+
+  Serial.println(makes);
   
 }
 
@@ -137,21 +163,14 @@ int level_1()
   stepperX.setAcceleration(1000);
   stepperX.moveTo(500); // get constants 
   stepperX.runToPosition(); // whats the difference between this and .runToNewPosition?
-  stepperZ.setAcceleration(1000);
+ // stepperZ.setAcceleration(1000);
 
   //z-axis stays home for level 1
 
-  //checking if 
+  //checking if time for level has run out 
   while (millis() <= (levelStartTime + LEVEL_1_MAX_TIME))
   {
-    stepperZ.moveTo(-100);
-    stepperZ.runToPosition();
-    delay(100);
 
-    stepperZ.moveTo(-900);
-    stepperZ.runToPosition();
-    delay(100);
-    
     if (makes >= 5) 
     {
        
@@ -163,34 +182,88 @@ int level_1()
     if ((millis() - currentLevelTime) >= 1000)
     {
       currentLevelTime = millis();
-      lcdUpdate(levelStartTime, currentLevelTime);
+      lcdUpdate(levelStartTime, currentLevelTime, LEVEL_1_MAX_TIME);
     }
   }
   
   makes = 0;
-  return 2;
+  return GAME_OVER_STATE;
 }
 
-void lcdUpdate(unsigned long levelStartTime, unsigned long currentLevelTime)
+void lcdUpdate(unsigned long levelStartTime, unsigned long currentLevelTime, unsigned long levelMaxTime)
 {
   lcd.setCursor(6,1);
   lcd.print(makes);
  
   int displayTimeElapsed = 0;
-  displayTimeElapsed = (LEVEL_1_MAX_TIME - (currentLevelTime - levelStartTime)) / 1000;
+  displayTimeElapsed = (levelMaxTime - (currentLevelTime - levelStartTime)) / 1000;
 
+  if (displayTimeElapsed < 10)
+  {
+    lcd.setCursor(17, 2);
+    lcd.print(" ");
+  }
   lcd.setCursor(16,2);
   lcd.print(displayTimeElapsed);
   
 }
 int level_2()
 {
- 
-  stepperZ.setAcceleration(1000);
-  stepperZ.moveTo(-700);
-  stepperZ.runToPosition();
-  delay(5000);
+  unsigned long levelStartTime = millis();
+  unsigned long currentLevelTime = levelStartTime;
 
-   
-  return 0;
+  lcd.setCursor(15,0); //need to update
+  lcd.print(currentLevel);
+  
+  stepperZ.setAcceleration(1000);
+  stepperZ.moveTo(-700); //start point
+  stepperZ.runToPosition();
+  delay(2000);
+
+  int nextPositionZ = -400;
+  
+  while (millis() <= (levelStartTime + LEVEL_2_MAX_TIME))
+  {
+    if (stepperZ.currentPosition() >= -400)
+    {
+      nextPositionZ = -900;
+    }
+    else if (stepperZ.currentPosition() <= -900)
+    {
+      nextPositionZ = -400;
+    }
+    
+    stepperZ.moveTo(nextPositionZ);
+    stepperZ.run();
+
+    if (makes >= 5) 
+    {
+      makes = 0;
+      return 0;
+      
+    }
+
+    if ((millis() - currentLevelTime) >= 1000)
+    {
+      currentLevelTime = millis();
+      lcdUpdate(levelStartTime, currentLevelTime, LEVEL_2_MAX_TIME);
+    }
+  }
+  
+  makes = 0;
+  return GAME_OVER_STATE;
+}
+
+int game_over()
+{
+  static bool lcdCleared = false;
+  if(!lcdCleared)
+  {
+    lcd.clear();
+    lcdCleared = true;
+  }
+  lcd.setCursor(0,0);
+  lcd.print("GAME OVER");
+  
+  return GAME_OVER_STATE;
 }
